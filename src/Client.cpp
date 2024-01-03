@@ -83,8 +83,13 @@ void loop() {
       
       float avg_temperature = (shtc3_temp.temperature + aht_temp.temperature) / 2.0;
       float avg_humidity = (shtc3_humidity.relative_humidity + aht_humidity.relative_humidity) / 2.0;
-      mqttClient.publish("outside/test/temperature", 1, true, String(avg_temperature).c_str());
-      mqttClient.publish("outside/test/humidity", 1, true, String(avg_humidity).c_str());
+      mqttClient.publish("outside/both/temperature", 1, true, String(avg_temperature).c_str());
+      mqttClient.publish("outside/both/humidity", 1, true, String(avg_humidity).c_str());
+      mqttClient.publish("outside/shtc3/temperature", 1, true, String(shtc3_temp.temperature).c_str());
+      mqttClient.publish("outside/shtc3/humidity", 1, true, String(shtc3_humidity.relative_humidity).c_str());
+      mqttClient.publish("outside/aht10/temperature", 1, true, String(aht_temp.temperature).c_str());
+      mqttClient.publish("outside/aht10/humidity", 1, true, String(aht_humidity.relative_humidity).c_str());
+      mqttClient.disconnect();
       
     } else {
       delay(5000);
