@@ -23,7 +23,7 @@ TwoWire I2Cone = TwoWire(0);
 TwoWire I2Ctwo = TwoWire(1);
 
 Adafruit_SHTC3 shtc3 = Adafruit_SHTC3();
-Adafruit_AHTX0 aht;
+Adafruit_AHTX0 aht10;
 
 
 AsyncMqttClient mqttClient;
@@ -69,8 +69,15 @@ void setup() {
 
   I2Ctwo.begin(SDA_2, SCL_2, 100000);
   I2Cone.begin(SDA_1, SCL_1, 100000);
-  shtc3.begin(&I2Ctwo);
-  aht.begin(&I2Cone);
+  while (!shtc3.begin(&Wire)) { 
+    Serial.println("shtc3 not find");
+    delay(1000); 
+  }
+  while (!aht10.begin(&I2Cone)) { 
+    Serial.println("aht10 not find");
+    delay(1000); 
+  }
+  
 }
 
 void loop() {
@@ -79,7 +86,7 @@ void loop() {
       sensors_event_t shtc3_humidity, shtc3_temp;  
       shtc3.getEvent(&shtc3_humidity, &shtc3_temp);
       sensors_event_t aht_humidity, aht_temp;
-      aht.getEvent(&aht_humidity, &aht_temp);
+      aht10.getEvent(&aht_humidity, &aht_temp);
       
       float avg_temperature = (shtc3_temp.temperature + aht_temp.temperature) / 2.0;
       float avg_humidity = (shtc3_humidity.relative_humidity + aht_humidity.relative_humidity) / 2.0;
@@ -90,6 +97,7 @@ void loop() {
       mqttClient.publish("outside/aht10/temperature", 1, true, String(aht_temp.temperature).c_str());
       mqttClient.publish("outside/aht10/humidity", 1, true, String(aht_humidity.relative_humidity).c_str());
       mqttClient.disconnect();
+      Serial.println("MQTT disconnected");
       
     } else {
       delay(5000);
