@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <AsyncMqttClient.h>
 #include <Adafruit_SHTC3.h>
+#include <Adafruit_BMP085.h>
 
 extern "C" {
 #include "freertos/FreeRTOS.h"
@@ -9,7 +10,7 @@ extern "C" {
 };
 #include <env.h>
 
-#define MQTT_HOST IPAddress(192, 168, 0, 202)
+#define MQTT_HOST IPAddress(78, 37, 8, 219)
 #define MQTT_PORT 1883
 
 #define SDA_1 21
@@ -19,11 +20,12 @@ extern "C" {
 #define SCL_2 32
 
 
-TwoWire I2Cone = TwoWire(0);
-TwoWire I2Ctwo = TwoWire(1);
+TwoWire I2C_one = TwoWire(0);
+TwoWire I2C_two = TwoWire(1);
 
 Adafruit_SHTC3 shtc3 = Adafruit_SHTC3();
 Adafruit_AHTX0 aht10;
+Adafruit_BMP085 bmp;
 
 
 AsyncMqttClient mqttClient;
@@ -67,13 +69,20 @@ void setup() {
 
   connectToWifi();
 
-  I2Ctwo.begin(SDA_2, SCL_2, 100000);
-  I2Cone.begin(SDA_1, SCL_1, 100000);
-  while (!shtc3.begin(&Wire)) { 
+  I2C_one.begin(SDA_1, SCL_1, 100000);
+  I2C_two.begin(SDA_2, SCL_2, 100000);
+  
+
+  while (!shtc3.begin(&I2C_two)) { 
     Serial.println("shtc3 not find");
     delay(1000); 
   }
-  while (!aht10.begin(&I2Cone)) { 
+
+  while (!bmp.begin(BMP085_ULTRAHIGHRES, &I2C_one)) { 
+    Serial.println("bmp not find");
+    delay(1000); 
+  }
+  while (!aht10.begin(&I2C_one)) { 
     Serial.println("aht10 not find");
     delay(1000); 
   }
@@ -83,19 +92,26 @@ void setup() {
 void loop() {
     if (mqttClient.connected()) {
       Serial.println("MQTT connected");
+
       sensors_event_t shtc3_humidity, shtc3_temp;  
       shtc3.getEvent(&shtc3_humidity, &shtc3_temp);
       sensors_event_t aht_humidity, aht_temp;
       aht10.getEvent(&aht_humidity, &aht_temp);
-      
+
       float avg_temperature = (shtc3_temp.temperature + aht_temp.temperature) / 2.0;
       float avg_humidity = (shtc3_humidity.relative_humidity + aht_humidity.relative_humidity) / 2.0;
+      float bmp_temperature = bmp.readTemperature();
+      float bmp_pressure = bmp.readPressure();
+
       mqttClient.publish("outside/both/temperature", 1, true, String(avg_temperature).c_str());
       mqttClient.publish("outside/both/humidity", 1, true, String(avg_humidity).c_str());
       mqttClient.publish("outside/shtc3/temperature", 1, true, String(shtc3_temp.temperature).c_str());
       mqttClient.publish("outside/shtc3/humidity", 1, true, String(shtc3_humidity.relative_humidity).c_str());
       mqttClient.publish("outside/aht10/temperature", 1, true, String(aht_temp.temperature).c_str());
       mqttClient.publish("outside/aht10/humidity", 1, true, String(aht_humidity.relative_humidity).c_str());
+      mqttClient.publish("outside/bmp180/temperature", 1, true, String(bmp_temperature).c_str());
+      mqttClient.publish("outside/bmp180/pressure", 1, true, String(bmp_pressure / 133.322).c_str());
+
       mqttClient.disconnect();
       Serial.println("MQTT disconnected");
       
