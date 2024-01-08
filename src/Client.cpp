@@ -10,7 +10,6 @@ extern "C" {
 };
 #include <env.h>
 
-#define MQTT_HOST IPAddress(78, 37, 8, 219)
 #define MQTT_PORT 1883
 
 #define SDA_1 21
