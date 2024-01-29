@@ -3,7 +3,6 @@
 #include <AsyncMqttClient.h>
 #include <Adafruit_SHTC3.h>
 #include <Adafruit_BMP085.h>
-#include <RCSwitch.h>
 #include <ArduinoJson.h>
 
 extern "C" {
@@ -28,8 +27,6 @@ Adafruit_SHTC3 shtc3 = Adafruit_SHTC3();
 Adafruit_AHTX0 aht10;
 Adafruit_BMP085 bmp;
 
-RCSwitch mySwitch = RCSwitch();
-
 AsyncMqttClient mqttClient;
 TimerHandle_t wifiReconnectTimer;
 
@@ -44,34 +41,6 @@ void connectToWifi() {
 void connectToMqtt() {
   Serial.println("Connecting to MQTT...");
   mqttClient.connect();
-}
-
-void onMqttConnect(bool sessionPresent) {
-  mqttClient.subscribe("home/light_switch", 1);
-}
-
-void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
-  DynamicJsonDocument doc(2048);
-  DeserializationError error = deserializeJson(doc, payload);
-  if (error) {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.c_str());
-    return;
-  }
-
-  const char* username = doc["username"];
-  const char* password = doc["password"];
-  if (strcmp(username, CONTROL_USERNAME) != 0 || strcmp(password, CONTROL_PASSWORD) != 0) {
-      Serial.print("Invalid username or password: ");
-      Serial.print("Username: ");
-      Serial.print(username);
-      Serial.print(", Password: ");
-      Serial.println(password);
-  } else {
-      mySwitch.send("000000000001010100010001"); //switch light
-      lightSwitchState = !lightSwitchState;
-      mqttClient.publish("home/light_switch_state", 1, true, String(lightSwitchState).c_str());
-  }
 }
 
 void WiFiEvent(WiFiEvent_t event) {
@@ -96,8 +65,6 @@ void setup() {
   I2C_one.begin(SDA_1, SCL_1, 100000);
   I2C_two.begin(SDA_2, SCL_2, 100000);
 
-  mySwitch.enableTransmit(19);
-
   while (!shtc3.begin(&I2C_two)) { 
     Serial.println("shtc3 not find");
     delay(1000); 
@@ -115,9 +82,6 @@ void setup() {
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
 
   WiFi.onEvent(WiFiEvent);
-
-  mqttClient.onConnect(onMqttConnect);
-  mqttClient.onMessage(onMqttMessage);
   mqttClient.setCredentials(MQTT_USERNAME, MQTT_PASSWORD);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
 
