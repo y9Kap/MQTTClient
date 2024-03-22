@@ -1,37 +1,26 @@
-#include <Adafruit_AHTX0.h>
-#include <WiFi.h>
-#include <AsyncMqttClient.h>
-#include <Adafruit_SHTC3.h>
-#include <Adafruit_BMP085.h>
-#include <ArduinoJson.h>
-
-extern "C" {
-#include "freertos/FreeRTOS.h"
-#include "freertos/timers.h"
-};
+#include <Arduino.h>
+#include <WiFi.h> 
 #include <env.h>
 
-#define MQTT_PORT 1883
+extern "C" {
+	#include "freertos/FreeRTOS.h"
+	#include "freertos/timers.h"  
+}
+#include <AsyncMqttClient.h>
+#include <Adafruit_SHTC3.h>
 
 #define SDA_1 21
 #define SCL_1 22
 
-#define SDA_2 33
-#define SCL_2 32
-
-
 TwoWire I2C_one = TwoWire(0);
-TwoWire I2C_two = TwoWire(1);
-
-Adafruit_SHTC3 shtc3 = Adafruit_SHTC3();
-Adafruit_AHTX0 aht10;
-Adafruit_BMP085 bmp;
 
 AsyncMqttClient mqttClient;
 TimerHandle_t wifiReconnectTimer;
+TimerHandle_t mqttReconnectTimer;
 
-bool lightSwitchState = false;
+Adafruit_SHTC3 shtc3 = Adafruit_SHTC3();
 
+unsigned long lastMsg = 0;
 
 void connectToWifi() {
   Serial.println("Connecting to Wi-Fi...");
@@ -50,72 +39,104 @@ void WiFiEvent(WiFiEvent_t event) {
         Serial.println("WiFi connected");
         Serial.println("IP address: ");
         Serial.println(WiFi.localIP());
+        connectToMqtt();
         break;
     case SYSTEM_EVENT_STA_DISCONNECTED:
         Serial.println("WiFi lost connection");
+        xTimerStop(mqttReconnectTimer, 0);
         xTimerStart(wifiReconnectTimer, 0);
         break;
     }
 }
 
+
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
+    Serial.print(F("MQTT disconnect reason: "));
+
+    if (WiFi.isConnected()) {
+      xTimerStart(mqttReconnectTimer, 0);
+    }
+
+    switch (reason) {
+    case AsyncMqttClientDisconnectReason::TCP_DISCONNECTED:
+        Serial.println(F("TCP_DISCONNECTED"));
+        break;
+    case AsyncMqttClientDisconnectReason::MQTT_SERVER_UNAVAILABLE:
+        Serial.println(F("MQTT_SERVER_UNAVAILABLE"));
+        break;
+    case AsyncMqttClientDisconnectReason::MQTT_UNACCEPTABLE_PROTOCOL_VERSION:
+        Serial.println(F("MQTT_UNACCEPTABLE_PROTOCOL_VERSION"));
+        break;
+    case AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT:
+        Serial.println(F("TLS_BAD_FINGERPRINT"));
+        break;
+    case AsyncMqttClientDisconnectReason::MQTT_IDENTIFIER_REJECTED:
+        Serial.println(F("MQTT_IDENTIFIER_REJECTED"));
+        break;
+    case AsyncMqttClientDisconnectReason::MQTT_MALFORMED_CREDENTIALS:
+        Serial.println(F("MQTT_MALFORMED_CREDENTIALS"));
+        break;
+    case AsyncMqttClientDisconnectReason::MQTT_NOT_AUTHORIZED:
+        Serial.println(F("MQTT_NOT_AUTHORIZED"));
+        break;
+    default:
+        Serial.printf_P(PSTR("unknown %d\n"), reason);
+    }
+}
+
+void onMqttPublish(uint16_t packetId) {
+  Serial.println("Publish acknowledged.");
+  Serial.print("  packetId: ");
+  Serial.println(packetId);
+}
+
 void setup() {
   Serial.begin(115200);
-  Serial.println("");
+  Serial.println();
+  Serial.println();
 
   I2C_one.begin(SDA_1, SCL_1, 100000);
-  I2C_two.begin(SDA_2, SCL_2, 100000);
 
-  while (!shtc3.begin(&I2C_two)) { 
+  while (!shtc3.begin(&I2C_one)) { 
     Serial.println("shtc3 not find");
     delay(1000); 
   }
 
-  while (!bmp.begin(BMP085_ULTRAHIGHRES, &I2C_one)) { 
-    Serial.println("bmp not find");
-    delay(1000); 
+  String clientId = "sensors";
+  for (int i = 0; i < 5; i++) {
+    clientId += char(random(25) + 'a'); 
   }
-  while (!aht10.begin(&I2C_one)) { 
-    Serial.println("aht10 not find");
-    delay(1000); 
-  }
-  
+
+  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
 
   WiFi.onEvent(WiFiEvent);
-  mqttClient.setCredentials(MQTT_USERNAME, MQTT_PASSWORD);
+
+  mqttClient.onDisconnect(onMqttDisconnect);
+  mqttClient.onPublish(onMqttPublish);
+  mqttClient.setClientId(clientId.c_str());
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setCredentials(MQTT_USERNAME, MQTT_PASSWORD);
 
   connectToWifi();
 }
 
 void loop() {
-    if (mqttClient.connected()) {
-      Serial.println("MQTT connected");
+  if (mqttClient.connected()) {
+
+    unsigned long now = millis();
+    
+    if (now - lastMsg > 5000) {
+      lastMsg = now;
 
       sensors_event_t shtc3_humidity, shtc3_temp;  
       shtc3.getEvent(&shtc3_humidity, &shtc3_temp);
-      sensors_event_t aht_humidity, aht_temp;
-      aht10.getEvent(&aht_humidity, &aht_temp);
 
-      float avg_temperature = (shtc3_temp.temperature + aht_temp.temperature) / 2.0;
-      float avg_humidity = (shtc3_humidity.relative_humidity + aht_humidity.relative_humidity) / 2.0;
-      float bmp_temperature = bmp.readTemperature();
-      float bmp_pressure = bmp.readPressure();
-
-      mqttClient.publish("outside/both/temperature", 1, true, String(avg_temperature).c_str());
-      mqttClient.publish("outside/both/humidity", 1, true, String(avg_humidity).c_str());
       mqttClient.publish("outside/shtc3/temperature", 1, true, String(shtc3_temp.temperature).c_str());
       mqttClient.publish("outside/shtc3/humidity", 1, true, String(shtc3_humidity.relative_humidity).c_str());
-      mqttClient.publish("outside/aht10/temperature", 1, true, String(aht_temp.temperature).c_str());
-      mqttClient.publish("outside/aht10/humidity", 1, true, String(aht_humidity.relative_humidity).c_str());
-      mqttClient.publish("outside/bmp180/temperature", 1, true, String(bmp_temperature).c_str());
-      mqttClient.publish("outside/bmp180/pressure", 1, true, String(bmp_pressure / 133.322).c_str());
 
-      delay(10000);
-      
-    } else {
-      delay(5000);
-      connectToMqtt();
-      delay(10000);
+      delay(1000);
+      mqttClient.disconnect(true);
     }
+  } 
 }
