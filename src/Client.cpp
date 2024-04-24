@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include <WiFi.h> 
 #include <env.h>
 
@@ -7,18 +8,15 @@ extern "C" {
 	#include "freertos/timers.h"  
 }
 #include <AsyncMqttClient.h>
-#include <Adafruit_SHTC3.h>
-
-#define SDA_1 21
-#define SCL_1 22
-
-TwoWire I2C_one = TwoWire(0);
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+#include <ClosedCube_HDC1080.h>
 
 AsyncMqttClient mqttClient;
+Adafruit_BME280 bme;
+ClosedCube_HDC1080 hdc1080;
 TimerHandle_t wifiReconnectTimer;
 TimerHandle_t mqttReconnectTimer;
-
-Adafruit_SHTC3 shtc3 = Adafruit_SHTC3();
 
 unsigned long lastMsg = 0;
 
@@ -84,23 +82,17 @@ void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
     }
 }
 
-void onMqttPublish(uint16_t packetId) {
-  Serial.println("Publish acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
-}
-
 void setup() {
   Serial.begin(115200);
   Serial.println();
   Serial.println();
 
-  I2C_one.begin(SDA_1, SCL_1, 100000);
-
-  while (!shtc3.begin(&I2C_one)) { 
-    Serial.println("shtc3 not find");
+  while (!bme.begin(0x76)) {
+    Serial.println("bme not find");
     delay(1000); 
   }
+
+  hdc1080.begin(0x40);
 
   String clientId = "sensors";
   for (int i = 0; i < 5; i++) {
@@ -113,7 +105,6 @@ void setup() {
   WiFi.onEvent(WiFiEvent);
 
   mqttClient.onDisconnect(onMqttDisconnect);
-  mqttClient.onPublish(onMqttPublish);
   mqttClient.setClientId(clientId.c_str());
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setCredentials(MQTT_USERNAME, MQTT_PASSWORD);
@@ -126,17 +117,23 @@ void loop() {
 
     unsigned long now = millis();
     
-    if (now - lastMsg > 5000) {
+    if (now - lastMsg > 10000) {
       lastMsg = now;
 
-      sensors_event_t shtc3_humidity, shtc3_temp;  
-      shtc3.getEvent(&shtc3_humidity, &shtc3_temp);
-
-      mqttClient.publish("outside/shtc3/temperature", 1, true, String(shtc3_temp.temperature).c_str());
-      mqttClient.publish("outside/shtc3/humidity", 1, true, String(shtc3_humidity.relative_humidity).c_str());
-
+      mqttClient.publish("outside/bme/temperature", 1, false, String(bme.readTemperature()).c_str());
+      delay(200);
+      mqttClient.publish("outside/bme/humidity", 1, false, String(bme.readHumidity()).c_str());
+      delay(200);
+      mqttClient.publish("outside/bme/pressure", 1, false, String(bme.readPressure()).c_str());
+      delay(200);
+      mqttClient.publish("outside/hdc1080/temperature", 1, false, String(hdc1080.readTemperature()).c_str());
+      delay(200);
+      mqttClient.publish("outside/hdc1080/humidity", 1, false, String(hdc1080.readHumidity()).c_str());
+      delay(200);
+      
       delay(1000);
       mqttClient.disconnect(true);
+
     }
   } 
 }
