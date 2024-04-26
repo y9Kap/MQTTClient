@@ -30,6 +30,10 @@ void connectToMqtt() {
   mqttClient.connect();
 }
 
+void onMqttConnect(bool sessionPresent) {
+  Serial.println("Connected to MQTT.");
+}
+
 void WiFiEvent(WiFiEvent_t event) {
     Serial.printf("[WiFi-event] event: %d\n", event);
     switch(event) {
@@ -77,6 +81,9 @@ void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
     case AsyncMqttClientDisconnectReason::MQTT_NOT_AUTHORIZED:
         Serial.println(F("MQTT_NOT_AUTHORIZED"));
         break;
+    case AsyncMqttClientDisconnectReason::TCP_FORCE_DISCONNECTED:
+        Serial.println(F("TCP_FORCE_DISCONNECTED"));
+        break;
     default:
         Serial.printf_P(PSTR("unknown %d\n"), reason);
     }
@@ -99,15 +106,17 @@ void setup() {
     clientId += char(random(25) + 'a'); 
   }
 
-  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
+  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(8000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
 
   WiFi.onEvent(WiFiEvent);
 
+  mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
   mqttClient.setClientId(clientId.c_str());
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setCredentials(MQTT_USERNAME, MQTT_PASSWORD);
+  mqttClient.setKeepAlive(10000);
 
   connectToWifi();
 }
@@ -119,12 +128,12 @@ void loop() {
     
     if (now - lastMsg > 10000) {
       lastMsg = now;
-
       mqttClient.publish("outside/bme/temperature", 1, false, String(bme.readTemperature()).c_str());
       delay(200);
       mqttClient.publish("outside/bme/humidity", 1, false, String(bme.readHumidity()).c_str());
       delay(200);
-      mqttClient.publish("outside/bme/pressure", 1, false, String(bme.readPressure()).c_str());
+      float pressure = bme.readPressure() * 0.00750064;
+      mqttClient.publish("outside/bme/pressure", 1, false, String(pressure).c_str());
       delay(200);
       mqttClient.publish("outside/hdc1080/temperature", 1, false, String(hdc1080.readTemperature()).c_str());
       delay(200);
