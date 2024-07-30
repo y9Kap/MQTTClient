@@ -142,7 +142,9 @@ void loop() {
       if (temperature >= -35 && temperature <= 50) {
           mqttClient.publish("outside/bme280/temperature", 1, false, String(temperature).c_str());
       }
+
       delay(500);
+
       float humidity = humidity_event.relative_humidity;
       if (humidity >= 1 && humidity <= 100) {
           mqttClient.publish("outside/bme280/humidity", 1, false, String(humidity).c_str());
@@ -150,7 +152,6 @@ void loop() {
 
       delay(500);
 
-      // Чтение давления и проверка на диапазон
       float pressure = pressure_event.pressure * 0.750064;
       if (pressure >= 600 && pressure <= 800) {
           mqttClient.publish("outside/bme280/pressure", 1, false, String(pressure).c_str());
@@ -158,7 +159,6 @@ void loop() {
 
       delay(500);
 
-      // Чтение температуры с HDC1080 и проверка на диапазон
       float temperatureHDC = hdc1080.readTemperature();
       if (temperatureHDC >= -35 && temperatureHDC <= 50) {
           mqttClient.publish("outside/hdc1080/temperature", 1, false, String(temperatureHDC).c_str());
@@ -166,7 +166,6 @@ void loop() {
 
       delay(500);
 
-      // Чтение влажности с HDC1080 и проверка на диапазон
       float humidityHDC = hdc1080.readHumidity();
       if (humidityHDC >= 1 && humidityHDC <= 100) {
           mqttClient.publish("outside/hdc1080/humidity", 1, false, String(humidityHDC).c_str());
@@ -175,6 +174,5 @@ void loop() {
       delay(1000);
       mqttClient.disconnect(true);
     }
-    
   } 
 }
