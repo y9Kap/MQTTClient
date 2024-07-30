@@ -14,10 +14,13 @@ extern "C" {
 
 AsyncMqttClient mqttClient;
 Adafruit_BME280 bme;
+Adafruit_Sensor *bme_temp = bme.getTemperatureSensor();
+Adafruit_Sensor *bme_pressure = bme.getPressureSensor();
+Adafruit_Sensor *bme_humidity = bme.getHumiditySensor();
+
 ClosedCube_HDC1080 hdc1080;
 TimerHandle_t wifiReconnectTimer;
 TimerHandle_t mqttReconnectTimer;
-
 unsigned long lastMsg = 0;
 
 void connectToWifi() {
@@ -91,22 +94,21 @@ void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println();
-  Serial.println();
 
   while (!bme.begin(0x76)) {
     Serial.println("bme not find");
     delay(1000); 
   }
 
+  bme_temp->printSensorDetails();
+  bme_pressure->printSensorDetails();
+  bme_humidity->printSensorDetails();
+
   hdc1080.begin(0x40);
 
   String clientId = "sensors";
-  for (int i = 0; i < 5; i++) {
-    clientId += char(random(25) + 'a'); 
-  }
 
-  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(8000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
+  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
 
   WiFi.onEvent(WiFiEvent);
@@ -127,22 +129,52 @@ void loop() {
     unsigned long now = millis();
     
     if (now - lastMsg > 10000) {
+
+      sensors_event_t temp_event, pressure_event, humidity_event;
+      bme_temp->getEvent(&temp_event);
+      bme_pressure->getEvent(&pressure_event);
+      bme_humidity->getEvent(&humidity_event);
+      delay(500);
+
       lastMsg = now;
-      mqttClient.publish("outside/bme/temperature", 1, false, String(bme.readTemperature()).c_str());
-      delay(200);
-      mqttClient.publish("outside/bme/humidity", 1, false, String(bme.readHumidity()).c_str());
-      delay(200);
-      float pressure = bme.readPressure() * 0.00750064;
-      mqttClient.publish("outside/bme/pressure", 1, false, String(pressure).c_str());
-      delay(200);
-      mqttClient.publish("outside/hdc1080/temperature", 1, false, String(hdc1080.readTemperature()).c_str());
-      delay(200);
-      mqttClient.publish("outside/hdc1080/humidity", 1, false, String(hdc1080.readHumidity()).c_str());
-      delay(200);
-      
+
+      float temperature = temp_event.temperature;
+      if (temperature >= -35 && temperature <= 50) {
+          mqttClient.publish("outside/bme280/temperature", 1, false, String(temperature).c_str());
+      }
+      delay(500);
+      float humidity = humidity_event.relative_humidity;
+      if (humidity >= 1 && humidity <= 100) {
+          mqttClient.publish("outside/bme280/humidity", 1, false, String(humidity).c_str());
+      }
+
+      delay(500);
+
+      // Чтение давления и проверка на диапазон
+      float pressure = pressure_event.pressure * 0.750064;
+      if (pressure >= 600 && pressure <= 800) {
+          mqttClient.publish("outside/bme280/pressure", 1, false, String(pressure).c_str());
+      }
+
+      delay(500);
+
+      // Чтение температуры с HDC1080 и проверка на диапазон
+      float temperatureHDC = hdc1080.readTemperature();
+      if (temperatureHDC >= -35 && temperatureHDC <= 50) {
+          mqttClient.publish("outside/hdc1080/temperature", 1, false, String(temperatureHDC).c_str());
+      }
+
+      delay(500);
+
+      // Чтение влажности с HDC1080 и проверка на диапазон
+      float humidityHDC = hdc1080.readHumidity();
+      if (humidityHDC >= 1 && humidityHDC <= 100) {
+          mqttClient.publish("outside/hdc1080/humidity", 1, false, String(humidityHDC).c_str());
+      }
+
       delay(1000);
       mqttClient.disconnect(true);
-
     }
+    
   } 
 }
